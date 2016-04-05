@@ -4,6 +4,7 @@
 #include <iostream>
 #include <cmath>
 #include <stdlib.h>
+#include <time.h>
 
 #include <opencv2/imgproc/imgproc.hpp>
 #include <time.h>
@@ -17,6 +18,7 @@ QSICamera cam;
 float g_exp = 0.001;
 int   g_filter = 1;
 int   g_bin = 2;
+char g_fn[256]="out";
 
 //-----------------------------------------------------------------------
 #define ushort unsigned short
@@ -32,11 +34,12 @@ public:;
     void	Update(bool force);
     int		Take();
     int		Find();
+    int		Dark(); 
     void	AutoLevel();
     ushort 	Pixel(int x, int y);
-    void	Save(const char *name);
+    void	Save();
     void 	WriteLine(FILE *file, int y);
-
+    float	Temp();
 public:
     Mat	cv_image;
 
@@ -98,13 +101,19 @@ void IntTo4(int v, char *p)
 //-----------------------------------------------------------------------
 
 
-void Cam::Save(const char *filename)
+void Cam::Save()
 {
-    FILE *file = fopen(filename, "wb");
+    time_t result = time(NULL); 
+    char   buf[512];
+
+    sprintf(buf, "%s_%ld.fit", g_fn, result);
+    FILE *file = fopen(buf, "wb");
 
     char  header_buf[0xb40];
 
     int i;
+
+
 
     for (i = 0; i < 0xb40; i++) header_buf[i] = ' ';
 
@@ -144,6 +153,18 @@ void Cam::Save(const char *filename)
 }
 
 //-----------------------------------------------------------------------
+
+
+float Cam::Temp()
+{
+	double temp;
+	int result;
+	
+	result = cam.get_CCDTemperature(&temp);
+	printf("%d\n", result);	
+	printf("temp = %f\n", (float)temp);
+	return temp;
+}
 
 
 Cam::Cam()
@@ -190,10 +211,10 @@ Cam::Cam()
     cam.put_FanMode(QSICamera::fanQuiet);
     
     // Query if the camera can control the CCD temp
-    //cam.get_CanSetCCDTemperature(&canSetTemp);
+    cam.get_CanSetCCDTemperature(&canSetTemp);
     if (canSetTemp) {
         // Set the CCD temp setpoint to 10.0C
-        cam.put_SetCCDTemperature(0.0);
+        cam.put_SetCCDTemperature(-5);
         // Enable the cooler
         cam.put_CoolerOn(true);
     }
@@ -207,7 +228,9 @@ Cam::Cam()
         // Set the filter wheel to position 1 (0 based position)
         cam.put_Position(g_filter);
     } 
-    
+   
+    Temp();
+ 
     cam.put_BinX(g_bin);
     cam.put_BinY(g_bin);
     cam.get_CameraXSize(&xsize);
@@ -373,32 +396,63 @@ int Cam::Take()
     
    
     bool imageReady = false;
+    
+    cam.put_ReadoutSpeed(QSICamera::HighImageQuality); //HighImageQuality
+
     cam.StartExposure(g_exp, true);
     cam.get_ImageReady(&imageReady);
 	
     while(!imageReady) {
-        Update(false); 
         char c = cvWaitKey(1);
-            
         if (c == 27) { 
             goto exit;
         }
-            
         usleep(100);
         cam.get_ImageReady(&imageReady);
     }
 	
     cam.get_ImageArraySize(x, y, z);
- 
     cam.get_ImageArray(cv_image.ptr<unsigned short>(0));	
-    //Update(true);
-    //char c = cvWaitKey(1);	
+    Save(); 
    
-    Save("test.fit"); 
+exit:; 
     cam.put_Connected(false);
     return 0;
+}
+
+
+//-----------------------------------------------------------------------
+
+int Cam::Dark()
+{
+    int x,y,z;
+
+
+    bool imageReady = false;
     
-exit:;
+    cam.put_UseStructuredExceptions(false);
+    cam.put_ReadoutSpeed(QSICamera::HighImageQuality); //HighImageQuality
+
+    int err = cam.StartExposure(g_exp, false);
+    printf("err %d\n", err);
+ 
+    cam.get_ImageReady(&imageReady);
+        
+    while(!imageReady) {
+        char c = cvWaitKey(1);
+        if (c == 27) {
+            goto exit;
+        }
+        usleep(100);
+        cam.get_ImageReady(&imageReady);
+    }
+    printf("x1\n"); 
+    cam.get_ImageArraySize(x, y, z);
+    cam.get_ImageArray(cv_image.ptr<unsigned short>(0));
+    printf("x2\n"); 
+    Save();
+   
+exit:; 
     cam.put_Connected(false);
     return 0;
 }
@@ -409,12 +463,17 @@ void help(char **argv)
 {
                 printf("%s -h        print this help\n", argv[0]);
                 printf("%s -t(ake)   take one frame\n", argv[0]);
-                printf("%s -f(ind)   continous find mode\n", argv[0]); 
+                printf("%s -dark   take one dark frame\n", argv[0]);
+
+ 
+		printf("%s -f(ind)   continous find mode\n", argv[0]); 
 		printf("exta args\n");
                 printf("-exp=value (in sec)\n");
 		printf("-filter=value (0-5)\n");
 		printf("-bin=value (1-9)\n");
+		printf("-o=filename\n");	
 		printf("sudo ./img -exp=0.001 -filter=3 -find -bin=4\n");
+		printf("sudo ./img -exp=0.0 -filter=0 -take -bin=2 -o=data\n");
 }
 
 
@@ -444,12 +503,14 @@ int main(int argc, char** argv)
      	if (match(argv[pos], "-exp=")) {sscanf(strchr(argv[pos], '=') , "=%f",  &g_exp); argv[pos][0] = 0;}
         if (match(argv[pos], "-filter=")) {sscanf(strchr(argv[pos], '=') , "=%d",  &g_filter); argv[pos][0] = 0;}
 	if (match(argv[pos], "-bin=")) {sscanf(strchr(argv[pos], '=') , "=%d",  &g_bin); argv[pos][0] = 0;}	
+	if (match(argv[pos], "-o="))  {sscanf(strchr(argv[pos], '=') , "=%s",  (char*)g_fn); argv[pos][0] = 0;}	
 	pos++;
      } 
 
     printf("exp    = %f\n", g_exp);
     printf("bin    = %d\n", g_bin);
     printf("filter = %d\n", g_filter);
+    printf("file   = %s\n", g_fn);
  
     namedWindow("img", 1);
     
@@ -470,7 +531,7 @@ int main(int argc, char** argv)
     while(pos < argc) { 
     	if (match(argv[pos], "-f")) a_cam->Find();
 	if (match(argv[pos], "-t")) a_cam->Take(); 
- 	
+  	if (match(argv[pos], "-dark")) a_cam->Dark();	
 	pos++;
    }
 }
