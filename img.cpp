@@ -34,6 +34,7 @@ public:;
     void	Update(bool force);
     int		Take();
     int		Find();
+    int		Focus();
     int		Dark(); 
     void	AutoLevel();
     ushort 	Pixel(int x, int y);
@@ -166,6 +167,7 @@ float Cam::Temp()
 	return temp;
 }
 
+//-----------------------------------------------------------------------
 
 Cam::Cam()
 {
@@ -390,13 +392,93 @@ exit:;
 
 //-----------------------------------------------------------------------
 
+
+int Cam::Focus()
+{
+    int x,y,z;
+    
+    cam.put_BinX(1);
+    cam.put_BinY(1);
+
+    cam.get_CameraXSize(&xsize);
+    cam.get_CameraYSize(&ysize);
+    
+    // Set the exposure to a full frame
+    xsize /= 4;
+    ysize /= 4;
+    
+    cam.put_StartX(xsize*1.5);
+    cam.put_StartY(ysize*1.5);
+    cam.put_NumX(xsize);
+    cam.put_NumY(ysize);
+    
+    cv_image = Mat(Size(xsize, ysize), CV_16UC1);
+    while(1) {	
+        bool imageReady = false;
+	cam.StartExposure(g_exp, true);
+	cam.get_ImageReady(&imageReady);
+	
+	while(!imageReady) {
+            Update(false); 
+	    char c = cvWaitKey(1);
+            
+            if (c == 27) { 
+                goto exit;
+            }
+            if (c == 'a' || c == 'A') {
+                AutoLevel();
+            }
+            
+            usleep(100);
+            cam.get_ImageReady(&imageReady);
+        }
+	
+        // Get the image dimensions to allocate an image array
+        cam.get_ImageArraySize(x, y, z);
+ 
+        cam.get_ImageArray(cv_image.ptr<unsigned short>(0));
+        
+        double minVal;
+        double maxVal;
+        Point  minLoc;
+        Point  maxLoc;
+        
+        minMaxLoc(cv_image, &minVal, &maxVal, &minLoc, &maxLoc);
+        printf("max %f\n", maxVal);
+        
+        Update(true);
+	char c = cvWaitKey(1);	
+        
+        if (c == 27) {
+            goto exit;	
+        }
+        if (c == 'a' || c == 'A') {
+        	AutoLevel();
+        }
+
+
+
+    }
+    cam.put_Connected(false);
+    std::cout << "Camera disconnected.\nTest complete.\n";
+    std::cout.flush();
+    return 0;
+    
+exit:;
+    cam.put_Connected(false);
+    return 0;
+}
+
+//-----------------------------------------------------------------------
+
 int Cam::Take()
 {
     int x,y,z;
     
    
     bool imageReady = false;
-    
+   
+    while(1) { 
     cam.put_ReadoutSpeed(QSICamera::HighImageQuality); //HighImageQuality
 
     cam.StartExposure(g_exp, true);
@@ -414,7 +496,7 @@ int Cam::Take()
     cam.get_ImageArraySize(x, y, z);
     cam.get_ImageArray(cv_image.ptr<unsigned short>(0));	
     Save(); 
-   
+    } 
 exit:; 
     cam.put_Connected(false);
     return 0;
@@ -462,11 +544,12 @@ exit:;
 void help(char **argv)
 {
                 printf("%s -h        print this help\n", argv[0]);
-                printf("%s -t(ake)   take one frame\n", argv[0]);
+                printf("%s -take   take one frame\n", argv[0]);
                 printf("%s -dark   take one dark frame\n", argv[0]);
+               printf("%s -focus   focus loop\n", argv[0]);
 
  
-		printf("%s -f(ind)   continous find mode\n", argv[0]); 
+		printf("%s -find   continous find mode\n", argv[0]); 
 		printf("exta args\n");
                 printf("-exp=value (in sec)\n");
 		printf("-filter=value (0-5)\n");
@@ -529,8 +612,9 @@ int main(int argc, char** argv)
     pos = 1;
 
     while(pos < argc) { 
-    	if (match(argv[pos], "-f")) a_cam->Find();
-	if (match(argv[pos], "-t")) a_cam->Take(); 
+    	if (match(argv[pos], "-find")) a_cam->Find();
+   	if (match(argv[pos], "-focus")) a_cam->Focus();
+	if (match(argv[pos], "-take")) a_cam->Take(); 
   	if (match(argv[pos], "-dark")) a_cam->Dark();	
 	pos++;
    }
