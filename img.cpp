@@ -36,6 +36,7 @@ public:;
     int		Find();
     int		Focus();
     int		Dark(); 
+    int         Flat();
     void	AutoLevel();
     ushort 	Pixel(int x, int y);
     void	Save();
@@ -52,6 +53,7 @@ public:
     long startY;
     float min_v;
     float range_v;
+    float avg;
 };
 
 
@@ -313,7 +315,8 @@ void Cam::AutoLevel()
 	}
 	sum /= cnt;
 	if (sum < 0) sum = 0;
-
+        avg = sum;
+        
 	cnt = 0.0;
 
         for (int y = 0; y < ysize; y += 50) {
@@ -402,7 +405,7 @@ int Cam::Focus()
 
     cam.get_CameraXSize(&xsize);
     cam.get_CameraYSize(&ysize);
-    
+    printf("Focus\n"); 
     // Set the exposure to a full frame
     xsize /= 4;
     ysize /= 4;
@@ -502,7 +505,6 @@ exit:;
     return 0;
 }
 
-
 //-----------------------------------------------------------------------
 
 int Cam::Dark()
@@ -532,7 +534,47 @@ int Cam::Dark()
     cam.get_ImageArraySize(x, y, z);
     cam.get_ImageArray(cv_image.ptr<unsigned short>(0));
     printf("x2\n"); 
-    Save();
+    
+ exit:; 
+    cam.put_Connected(false);
+    return 0;
+}
+
+//-----------------------------------------------------------------------
+
+int Cam::Flat()
+{
+    int x,y,z;
+
+
+    bool imageReady = false;
+    
+    cam.put_UseStructuredExceptions(false);
+    cam.put_ReadoutSpeed(QSICamera::HighImageQuality); //HighImageQuality
+
+    int err = cam.StartExposure(g_exp, false);
+    printf("err %d\n", err);
+ 
+    cam.get_ImageReady(&imageReady);
+        
+    while(!imageReady) {
+        char c = cvWaitKey(1);
+        if (c == 27) {
+            goto exit;
+        }
+        usleep(100);
+        cam.get_ImageReady(&imageReady);
+    }
+    printf("x1\n"); 
+    cam.get_ImageArraySize(x, y, z);
+    cam.get_ImageArray(cv_image.ptr<unsigned short>(0));
+    printf("x2\n"); 
+    AutoLevel();
+    
+   if (avg > 5000 && avg < 11000) {
+        Save();
+    }
+    
    
 exit:; 
     cam.put_Connected(false);
@@ -546,8 +588,8 @@ void help(char **argv)
                 printf("%s -h        print this help\n", argv[0]);
                 printf("%s -take   take one frame\n", argv[0]);
                 printf("%s -dark   take one dark frame\n", argv[0]);
-               printf("%s -focus   focus loop\n", argv[0]);
-
+                printf("%s -focus   focus loop\n", argv[0]);
+                printf("%s -flat (flat loop)\n", argv[0]);
  
 		printf("%s -find   continous find mode\n", argv[0]); 
 		printf("exta args\n");
@@ -616,6 +658,7 @@ int main(int argc, char** argv)
    	if (match(argv[pos], "-focus")) a_cam->Focus();
 	if (match(argv[pos], "-take")) a_cam->Take(); 
   	if (match(argv[pos], "-dark")) a_cam->Dark();	
+	if (match(argv[pos], "-flat")) a_cam->Flat();	
 	pos++;
    }
 }
