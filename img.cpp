@@ -448,7 +448,7 @@ int Cam::Focus()
         
         minMaxLoc(cv_image, &minVal, &maxVal, &minLoc, &maxLoc);
         printf("max %f\n", maxVal);
-        
+        Save(); 
         Update(true);
 	char c = cvWaitKey(1);	
         
@@ -530,11 +530,9 @@ int Cam::Dark()
         usleep(100);
         cam.get_ImageReady(&imageReady);
     }
-    printf("x1\n"); 
     cam.get_ImageArraySize(x, y, z);
     cam.get_ImageArray(cv_image.ptr<unsigned short>(0));
-    printf("x2\n"); 
-    
+    Save(); 
  exit:; 
     cam.put_Connected(false);
     return 0;
@@ -552,30 +550,36 @@ int Cam::Flat()
     cam.put_UseStructuredExceptions(false);
     cam.put_ReadoutSpeed(QSICamera::HighImageQuality); //HighImageQuality
 
-    int err = cam.StartExposure(g_exp, false);
-    printf("err %d\n", err);
+    while(1) {
+    int err = cam.StartExposure(g_exp, true);
  
     cam.get_ImageReady(&imageReady);
         
     while(!imageReady) {
-        char c = cvWaitKey(1);
+        
+	char c = cvWaitKey(1);
         if (c == 27) {
             goto exit;
         }
         usleep(100);
         cam.get_ImageReady(&imageReady);
     }
-    printf("x1\n"); 
+    Update(true); 
+    char c = cvWaitKey(1);
+    if (c == 27) {
+    	goto exit;
+    }
+  
     cam.get_ImageArraySize(x, y, z);
     cam.get_ImageArray(cv_image.ptr<unsigned short>(0));
-    printf("x2\n"); 
     AutoLevel();
-    
+    printf("level %f\n", avg); 
    if (avg > 5000 && avg < 11000) {
-        Save();
+        
+	Save();
     }
     
-   
+ }  
 exit:; 
     cam.put_Connected(false);
     return 0;
