@@ -5,6 +5,7 @@
 #include <cmath>
 #include <stdlib.h>
 #include <time.h>
+#include <signal.h>
 
 #include <opencv2/imgproc/imgproc.hpp>
 #include <time.h>
@@ -19,6 +20,7 @@ float g_exp = 0.001;
 int   g_filter = 1;
 int   g_bin = 2;
 char g_fn[256]="out";
+int  killp = 0;
 
 //-----------------------------------------------------------------------
 #define ushort unsigned short
@@ -355,7 +357,7 @@ int Cam::Find()
             Update(false); 
 	    char c = cvWaitKey(1);
             
-            if (c == 27) { 
+            if (killp || c == 27) { 
                 goto exit;
             }
             if (c == 'a' || c == 'A') {
@@ -373,7 +375,7 @@ int Cam::Find()
         Update(true);
 	char c = cvWaitKey(1);	
         
-        if (c == 27) {
+        if (killp || c == 27) {
             goto exit;	
         }
         if (c == 'a' || c == 'A') {
@@ -384,8 +386,6 @@ int Cam::Find()
 
     }
     cam.put_Connected(false);
-    std::cout << "Camera disconnected.\nTest complete.\n";
-    std::cout.flush();
     return 0;
     
 exit:;
@@ -425,7 +425,7 @@ int Cam::Focus()
             Update(false); 
 	    char c = cvWaitKey(1);
             
-            if (c == 27) { 
+            if (killp || c == 27) { 
                 goto exit;
             }
             if (c == 'a' || c == 'A') {
@@ -452,7 +452,7 @@ int Cam::Focus()
         Update(true);
 	char c = cvWaitKey(1);	
         
-        if (c == 27) {
+        if (killp || c == 27) {
             goto exit;	
         }
         if (c == 'a' || c == 'A') {
@@ -489,7 +489,7 @@ int Cam::Take()
 	
     while(!imageReady) {
         char c = cvWaitKey(1);
-        if (c == 27) { 
+        if (killp || c == 27) { 
             goto exit;
         }
         usleep(100);
@@ -524,7 +524,7 @@ int Cam::Dark()
         
     while(!imageReady) {
         char c = cvWaitKey(1);
-        if (c == 27) {
+        if (killp || c == 27) {
             goto exit;
         }
         usleep(100);
@@ -558,7 +558,7 @@ int Cam::Flat()
     while(!imageReady) {
         
 	char c = cvWaitKey(1);
-        if (c == 27) {
+        if (killp || c == 27) {
             goto exit;
         }
         usleep(100);
@@ -566,7 +566,7 @@ int Cam::Flat()
     }
     Update(true); 
     char c = cvWaitKey(1);
-    if (c == 27) {
+    if (killp || c == 27) {
     	goto exit;
     }
   
@@ -574,7 +574,7 @@ int Cam::Flat()
     cam.get_ImageArray(cv_image.ptr<unsigned short>(0));
     AutoLevel();
     printf("level %f\n", avg); 
-   if (avg > 5000 && avg < 11000) {
+   if (avg > 5000 && avg < 21000) {
         
 	Save();
     }
@@ -616,11 +616,21 @@ bool match(char *s1, const char *s2)
 
 //-----------------------------------------------------------------------
 
+void intHandler(int dummy=0) {
+       	killp = 1;
+
+	usleep(1000000); 
+	exit(0);
+}
+
+//-----------------------------------------------------------------------
 
 
 int main(int argc, char** argv)
 {
-   
+    signal(SIGINT, intHandler);
+
+ 
     if (argc == 1 || strcmp(argv[1], "-h") == 0) {
             help(argv);
             return 0;
