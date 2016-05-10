@@ -11,7 +11,7 @@
 #include <time.h>
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
-
+#include "../guider/guider/scope.cpp"
 
 using namespace cv;
 
@@ -23,8 +23,23 @@ char g_fn[256]="out";
 int  killp = 0;
 
 //-----------------------------------------------------------------------
+
+Scope *scope;
+
+//-----------------------------------------------------------------------
 #define ushort unsigned short
 //-----------------------------------------------------------------------
+
+#include <sys/time.h>
+
+double nanotime()
+{
+   timespec ts;
+   clock_gettime(CLOCK_REALTIME, &ts);
+
+   return (ts.tv_sec + ts.tv_nsec * 1e-9);
+}
+
 
 
 class Cam {
@@ -220,7 +235,7 @@ Cam::Cam()
     cam.get_CanSetCCDTemperature(&canSetTemp);
     if (canSetTemp) {
         // Set the CCD temp setpoint to 10.0C
-        cam.put_SetCCDTemperature(-5);
+        cam.put_SetCCDTemperature(-10);
         // Enable the cooler
         cam.put_CoolerOn(true);
     }
@@ -390,6 +405,7 @@ int Cam::Find()
     
 exit:;
     cam.put_Connected(false);
+    killp = 0; 
     return 0;
 }
 
@@ -469,6 +485,7 @@ int Cam::Focus()
     
 exit:;
     cam.put_Connected(false);
+    killp = 0; 
     return 0;
 }
 
@@ -495,13 +512,15 @@ int Cam::Take()
         usleep(100);
         cam.get_ImageReady(&imageReady);
     }
-	
+    
+    scope->XCommand("xreqdither");
     cam.get_ImageArraySize(x, y, z);
     cam.get_ImageArray(cv_image.ptr<unsigned short>(0));	
     Save(); 
     } 
 exit:; 
     cam.put_Connected(false);
+    killp = 0; 
     return 0;
 }
 
@@ -517,17 +536,23 @@ int Cam::Dark()
     cam.put_UseStructuredExceptions(false);
     cam.put_ReadoutSpeed(QSICamera::HighImageQuality); //HighImageQuality
 
+    double start = nanotime();
     int err = cam.StartExposure(g_exp, false);
     printf("err %d\n", err);
  
     cam.get_ImageReady(&imageReady);
-        
+       
+    int cnt = 0;
+ 
     while(!imageReady) {
         char c = cvWaitKey(1);
         if (killp || c == 27) {
-            goto exit;
+            printf("exit\n"); 
+	    goto exit;
         }
-        usleep(100);
+       	cnt++;
+	if (cnt % 30 == 0) printf("%f\n", (nanotime() - start)); 
+	usleep(1000);
         cam.get_ImageReady(&imageReady);
     }
     cam.get_ImageArraySize(x, y, z);
@@ -535,6 +560,7 @@ int Cam::Dark()
     Save(); 
  exit:; 
     cam.put_Connected(false);
+    killp = 0; 
     return 0;
 }
 
@@ -582,6 +608,7 @@ int Cam::Flat()
  }  
 exit:; 
     cam.put_Connected(false);
+    killp = 0; 
     return 0;
 }
 
@@ -618,8 +645,11 @@ bool match(char *s1, const char *s2)
 
 void intHandler(int dummy=0) {
        	killp = 1;
-
-	usleep(1000000); 
+	printf("sig kill\n");
+	while(killp) {
+		usleep(10000);
+	}
+	printf("killp cleared\n"); 
 	exit(0);
 }
 
@@ -630,7 +660,13 @@ int main(int argc, char** argv)
 {
     signal(SIGINT, intHandler);
 
- 
+    scope = new Scope();
+    scope->Init();
+    
+    //scope->XCommand("xreqdither");
+    //scope->XCommand("xdither");
+    //scope->XCommand("xdither"); 
+    
     if (argc == 1 || strcmp(argv[1], "-h") == 0) {
             help(argv);
             return 0;
