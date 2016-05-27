@@ -561,8 +561,11 @@ int Cam::FocusOptimizer()
         }
     
         total_move += direction;
-        
-        scope->MoveFocus(direction);
+       
+	char buf[256];
+	sprintf(buf, "xfocus%d", direction);
+	scope->XCommand(buf);
+ 
  
         printf("old_max %f, new_max %f. direction = %d. totalmove = %d\n", max0, maxVal, direction, total_move);
         max0 = maxVal;
@@ -803,6 +806,7 @@ int main(int argc, char** argv)
 	if (match(argv[pos], "-take")) a_cam->Take(); 
   	if (match(argv[pos], "-dark")) a_cam->Dark();	
 	if (match(argv[pos], "-flat")) a_cam->Flat();	
+	if (match(argv[pos], "-xfocus")) a_cam->FocusOptimizer();	
 	pos++;
    }
 }
