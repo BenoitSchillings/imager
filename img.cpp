@@ -20,7 +20,8 @@ float g_exp = 0.001;
 int   g_filter = 1;
 int   g_bin = 2;
 char g_fn[256]="out";
-int  killp = 0;
+volatile int  killp = 0;
+
 
 //-----------------------------------------------------------------------
 
@@ -52,6 +53,7 @@ public:;
     int		Take();
     int		Find();
     int		Focus();
+    int         FocusOptimizer();
     int		Dark(); 
     int         Flat();
     void	AutoLevel();
@@ -249,7 +251,8 @@ Cam::Cam()
         // Set the filter wheel to position 1 (0 based position)
         cam.put_Position(g_filter);
     } 
-   
+    //cam.put_ShutterPriority(QSICamera::ShutterPriorityElectronic);
+ 
     Temp();
  
     cam.put_BinX(g_bin);
@@ -489,6 +492,100 @@ exit:;
     return 0;
 }
 
+
+
+//-----------------------------------------------------------------------
+
+
+
+int Cam::FocusOptimizer()
+{
+    int x,y,z;
+    
+    cam.put_BinX(1);
+    cam.put_BinY(1);
+
+    cam.get_CameraXSize(&xsize);
+    cam.get_CameraYSize(&ysize);
+    printf("Focus\n"); 
+    xsize /= 4;
+    ysize /= 4;
+    
+    cam.put_StartX(xsize*1.5);
+    cam.put_StartY(ysize*1.5);
+    cam.put_NumX(xsize);
+    cam.put_NumY(ysize);
+    
+    int iter = 15;
+    
+    cv_image = Mat(Size(xsize, ysize), CV_16UC1);
+    int direction = 8;
+    int total_move = 0;
+    float max0 = 0;
+    
+    while(iter > 0) {
+        iter--;
+        
+        bool imageReady = false;
+	cam.StartExposure(g_exp, true);
+	cam.get_ImageReady(&imageReady);
+	
+	while(!imageReady) {
+            Update(false); 
+	    char c = cvWaitKey(1);
+            
+            if (killp || c == 27) { 
+                goto exit;
+            }
+            usleep(100);
+            cam.get_ImageReady(&imageReady);
+        }
+	
+        // Get the image dimensions to allocate an image array
+        cam.get_ImageArraySize(x, y, z);
+ 
+        cam.get_ImageArray(cv_image.ptr<unsigned short>(0));
+        
+        double minVal;
+        double maxVal;
+        Point  minLoc;
+        Point  maxLoc;
+        
+        minMaxLoc(cv_image, &minVal, &maxVal, &minLoc, &maxLoc);
+        
+        
+       
+        if (maxVal < max0) {
+            //reverse direction
+            direction = -direction;
+        }
+    
+        total_move += direction;
+        
+        scope->MoveFocus(direction);
+ 
+        printf("old_max %f, new_max %f. direction = %d. totalmove = %d\n", max0, maxVal, direction, total_move);
+        max0 = maxVal;
+      
+        Update(true);
+        AutoLevel();
+	char c = cvWaitKey(1);	
+        
+        if (killp || c == 27) {
+            goto exit;	
+        }
+    }
+    cam.put_Connected(false);
+    std::cout << "Camera disconnected.\nTest complete.\n";
+    std::cout.flush();
+    return 0;
+    
+exit:;
+    cam.put_Connected(false);
+    killp = 0; 
+    return 0;
+}
+
 //-----------------------------------------------------------------------
 
 int Cam::Take()
@@ -569,26 +666,28 @@ int Cam::Dark()
 int Cam::Flat()
 {
     int x,y,z;
-
+    int frame_taken = 0;
 
     bool imageReady = false;
     
     cam.put_UseStructuredExceptions(false);
     cam.put_ReadoutSpeed(QSICamera::HighImageQuality); //HighImageQuality
 
-    while(1) {
+    while(frame_taken < 10) {
     int err = cam.StartExposure(g_exp, true);
  
     cam.get_ImageReady(&imageReady);
-        
+       
+    int cnt = 0; 
     while(!imageReady) {
         
 	char c = cvWaitKey(1);
         if (killp || c == 27) {
             goto exit;
         }
-        usleep(100);
+        usleep(10000);
         cam.get_ImageReady(&imageReady);
+	cnt++;
     }
     Update(true); 
     char c = cvWaitKey(1);
@@ -600,13 +699,15 @@ int Cam::Flat()
     cam.get_ImageArray(cv_image.ptr<unsigned short>(0));
     AutoLevel();
     printf("level %f\n", avg); 
-   if (avg > 5000 && avg < 21000) {
-        
+   if (avg > 3000 && avg < 15000) {
+        frame_taken++; 
 	Save();
     }
     
  }  
 exit:; 
+    printf("forced exit\n"); 
+    usleep(1000000); 
     cam.put_Connected(false);
     killp = 0; 
     return 0;
@@ -646,11 +747,8 @@ bool match(char *s1, const char *s2)
 void intHandler(int dummy=0) {
        	killp = 1;
 	printf("sig kill\n");
-	while(killp) {
-		usleep(10000);
-	}
-	printf("killp cleared\n"); 
-	exit(0);
+	cam.put_Connected(false);	
+ 	exit(0);
 }
 
 //-----------------------------------------------------------------------
@@ -662,10 +760,6 @@ int main(int argc, char** argv)
 
     scope = new Scope();
     scope->Init();
-    
-    //scope->XCommand("xreqdither");
-    //scope->XCommand("xdither");
-    //scope->XCommand("xdither"); 
     
     if (argc == 1 || strcmp(argv[1], "-h") == 0) {
             help(argv);
