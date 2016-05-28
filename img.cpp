@@ -53,7 +53,7 @@ public:;
     int		Take();
     int		Find();
     int		Focus();
-    int         FocusOptimizer();
+    int         FocusOptimizer(bool sub);
     int		Dark(); 
     int         Flat();
     void	AutoLevel();
@@ -467,7 +467,7 @@ int Cam::Focus()
         
         minMaxLoc(cv_image, &minVal, &maxVal, &minLoc, &maxLoc);
         printf("max %f\n", maxVal);
-        Save(); 
+        //Save(); 
         Update(true);
 	char c = cvWaitKey(1);	
         
@@ -498,7 +498,7 @@ exit:;
 
 
 
-int Cam::FocusOptimizer()
+int Cam::FocusOptimizer(bool sub)
 {
     int x,y,z;
     
@@ -578,13 +578,14 @@ int Cam::FocusOptimizer()
             goto exit;	
         }
     }
-    cam.put_Connected(false);
-    std::cout << "Camera disconnected.\nTest complete.\n";
-    std::cout.flush();
+    if (!sub) { cam.put_Connected(false);
+    	std::cout << "Camera disconnected.\nTest complete.\n";
+    	std::cout.flush();
+    } 
     return 0;
     
 exit:;
-    cam.put_Connected(false);
+    if (!sub) cam.put_Connected(false);
     killp = 0; 
     return 0;
 }
@@ -594,11 +595,18 @@ exit:;
 int Cam::Take()
 {
     int x,y,z;
-    
+    int fc = 0; 
    
     bool imageReady = false;
    
     while(1) { 
+    fc++; 
+    
+    if (fc == 4) {
+   	this->FocusOptimizer(true);
+	fc = 0; 
+    }
+
     cam.put_ReadoutSpeed(QSICamera::HighImageQuality); //HighImageQuality
 
     cam.StartExposure(g_exp, true);
@@ -763,7 +771,14 @@ int main(int argc, char** argv)
 
     scope = new Scope();
     scope->Init();
-    
+  
+    //while(1) { 
+    //scope->XCommand("xfocus12\n"); 
+    //usleep(500000); 
+    //scope->XCommand("xfocus-12\n");
+    //usleep(500000); 
+    //} 
+    //return 0;
     if (argc == 1 || strcmp(argv[1], "-h") == 0) {
             help(argv);
             return 0;
@@ -806,7 +821,7 @@ int main(int argc, char** argv)
 	if (match(argv[pos], "-take")) a_cam->Take(); 
   	if (match(argv[pos], "-dark")) a_cam->Dark();	
 	if (match(argv[pos], "-flat")) a_cam->Flat();	
-	if (match(argv[pos], "-xfocus")) a_cam->FocusOptimizer();	
+	if (match(argv[pos], "-xfocus")) a_cam->FocusOptimizer(false);	
 	pos++;
    }
 }
