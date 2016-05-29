@@ -501,33 +501,34 @@ exit:;
 int Cam::FocusOptimizer(bool sub)
 {
     int x,y,z;
-    
+    int mdelta;
+ 
     cam.put_BinX(1);
     cam.put_BinY(1);
 
     cam.get_CameraXSize(&xsize);
     cam.get_CameraYSize(&ysize);
     printf("Focus\n"); 
-    xsize /= 4;
-    ysize /= 4;
+    xsize /= 2;
+    ysize /= 2;
     
-    cam.put_StartX(xsize*1.5);
-    cam.put_StartY(ysize*1.5);
+    cam.put_StartX(xsize*0.5);
+    cam.put_StartY(ysize*0.5);
     cam.put_NumX(xsize);
     cam.put_NumY(ysize);
     
-    int iter = 15;
+    int iter = 235;
     
     cv_image = Mat(Size(xsize, ysize), CV_16UC1);
-    int direction = 8;
+    int direction = 4;
     int total_move = 0;
     float max0 = 0;
-    
-    while(iter > 0) {
-        iter--;
-        
+    scope->XCommand("xfocus-40"); 
+    sleep(3); 
+    int best = 0; 
+    while(total_move < 80) {
         bool imageReady = false;
-	cam.StartExposure(g_exp, true);
+	cam.StartExposure(2, true);
 	cam.get_ImageReady(&imageReady);
 	
 	while(!imageReady) {
@@ -535,7 +536,7 @@ int Cam::FocusOptimizer(bool sub)
 	    char c = cvWaitKey(1);
             
             if (killp || c == 27) { 
-                goto exit;
+                goto eexit;
             }
             usleep(100);
             cam.get_ImageReady(&imageReady);
@@ -552,39 +553,43 @@ int Cam::FocusOptimizer(bool sub)
         Point  maxLoc;
         
         minMaxLoc(cv_image, &minVal, &maxVal, &minLoc, &maxLoc);
-        
-        
-       
-        if (maxVal < max0) {
-            //reverse direction
-            direction = -direction;
-        }
+        if (maxVal > max0) {
+		best = total_move;
+		max0 = maxVal;
+	}
+ 
     
         total_move += direction;
        
 	char buf[256];
 	sprintf(buf, "xfocus%d", direction);
 	scope->XCommand(buf);
- 
- 
         printf("old_max %f, new_max %f. direction = %d. totalmove = %d\n", max0, maxVal, direction, total_move);
-        max0 = maxVal;
-      
+     
+	//wait 3 second for focus move to complete 
+        sleep(2); 
         Update(true);
         AutoLevel();
 	char c = cvWaitKey(1);	
         
         if (killp || c == 27) {
-            goto exit;	
+            goto eexit;	
         }
     }
-    if (!sub) { cam.put_Connected(false);
+    
+    mdelta = best - total_move;
+    char buf[256];
+    sprintf(buf, "xfocus%d\n", mdelta);
+    scope->XCommand(buf);
+    printf("final move back by %d\n", mdelta); 
+    if (!sub) {
+        cam.put_Connected(false);
     	std::cout << "Camera disconnected.\nTest complete.\n";
     	std::cout.flush();
     } 
     return 0;
     
-exit:;
+eexit:;
     if (!sub) cam.put_Connected(false);
     killp = 0; 
     return 0;
@@ -596,17 +601,15 @@ int Cam::Take()
 {
     int x,y,z;
     int fc = 0; 
-   
+    long xsize;
+    long ysize; 
     bool imageReady = false;
-   
-    while(1) { 
+  
+    fc = 0;
+     
+    while(fc!=4) { 
     fc++; 
     
-    if (fc == 4) {
-   	this->FocusOptimizer(true);
-	fc = 0; 
-    }
-
     cam.put_ReadoutSpeed(QSICamera::HighImageQuality); //HighImageQuality
 
     cam.StartExposure(g_exp, true);
@@ -620,10 +623,14 @@ int Cam::Take()
         usleep(100);
         cam.get_ImageReady(&imageReady);
     }
-    
-    scope->XCommand("xreqdither");
+   
+    if (fc == 4) {
+    	scope->XCommand("xreqdither");
+    } 
+
     cam.get_ImageArraySize(x, y, z);
     cam.get_ImageArray(cv_image.ptr<unsigned short>(0));	
+    usleep(1000*10000*4); 
     Save(); 
     } 
 exit:; 
@@ -684,7 +691,7 @@ int Cam::Flat()
     cam.put_UseStructuredExceptions(false);
     cam.put_ReadoutSpeed(QSICamera::HighImageQuality); //HighImageQuality
 
-    while(frame_taken < 10) {
+    while(frame_taken < 15) {
     int err = cam.StartExposure(g_exp, true);
  
     cam.get_ImageReady(&imageReady);
@@ -710,7 +717,7 @@ int Cam::Flat()
     cam.get_ImageArray(cv_image.ptr<unsigned short>(0));
     AutoLevel();
     printf("level %f\n", avg); 
-   if (avg > 3000 && avg < 15000) {
+   if (avg > 3000 && avg < 18000) {
         frame_taken++; 
 	Save();
     }
