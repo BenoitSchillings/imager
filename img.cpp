@@ -61,6 +61,8 @@ public:;
     void	Save();
     void 	WriteLine(FILE *file, int y);
     float	Temp();
+    int         FocusJob(int move0, int step);
+
 public:
     Mat	cv_image;
 
@@ -496,48 +498,27 @@ exit:;
 
 //-----------------------------------------------------------------------
 
-
-
-int Cam::FocusOptimizer(bool sub)
+int Cam::FocusJob(int move0, int step)
 {
-    int x,y,z;
-    int mdelta;
- 
-    cam.put_BinX(1);
-    cam.put_BinY(1);
-
-    cam.get_CameraXSize(&xsize);
-    cam.get_CameraYSize(&ysize);
-    printf("Focus\n"); 
-    xsize /= 2;
-    ysize /= 2;
-    
-    cam.put_StartX(xsize*0.5);
-    cam.put_StartY(ysize*0.5);
-    cam.put_NumX(xsize);
-    cam.put_NumY(ysize);
-    
-    int iter = 235;
-    
-    cv_image = Mat(Size(xsize, ysize), CV_16UC1);
-    int direction = 4;
+    int direction = step;
     int total_move = 0;
     float max0 = 0;
-    scope->XCommand("xfocus-40"); 
+    char buf[256];
+    int x, y, z;
+    int mdelta;
+
+ 
+    sprintf(buf, "xfocus%d", -move0/2);
+    scope->XCommand(buf); 
     sleep(3); 
     int best = 0; 
-    while(total_move < 80) {
+    while(total_move < move0) {
         bool imageReady = false;
 	cam.StartExposure(2, true);
 	cam.get_ImageReady(&imageReady);
 	
 	while(!imageReady) {
             Update(false); 
-	    char c = cvWaitKey(1);
-            
-            if (killp || c == 27) { 
-                goto eexit;
-            }
             usleep(100);
             cam.get_ImageReady(&imageReady);
         }
@@ -561,9 +542,7 @@ int Cam::FocusOptimizer(bool sub)
     
         total_move += direction;
        
-	char buf[256];
-	sprintf(buf, "xfocus%d", direction);
-	scope->XCommand(buf);
+	sprintf(buf, "xfocus%d", direction); scope->XCommand(buf);
         printf("old_max %f, new_max %f. direction = %d. totalmove = %d\n", max0, maxVal, direction, total_move);
      
 	//wait 3 second for focus move to complete 
@@ -573,15 +552,44 @@ int Cam::FocusOptimizer(bool sub)
 	char c = cvWaitKey(1);	
         
         if (killp || c == 27) {
-            goto eexit;	
+            goto eexit0;	
         }
     }
-    
+   
+eexit0:;
+ 
     mdelta = best - total_move;
-    char buf[256];
-    sprintf(buf, "xfocus%d\n", mdelta);
-    scope->XCommand(buf);
+    sprintf(buf, "xfocus%d\n", mdelta); scope->XCommand(buf);
     printf("final move back by %d\n", mdelta); 
+   
+eexit:; 
+}
+
+
+
+int Cam::FocusOptimizer(bool sub)
+{
+    cam.put_BinX(1);
+    cam.put_BinY(1);
+
+    cam.get_CameraXSize(&xsize);
+    cam.get_CameraYSize(&ysize);
+    printf("Focus\n"); 
+    xsize /= 2;
+    ysize /= 2;
+    
+    cam.put_StartX(xsize*0.5);
+    cam.put_StartY(ysize*0.5);
+    cam.put_NumX(xsize);
+    cam.put_NumY(ysize);
+    
+    int iter = 235;
+    
+    cv_image = Mat(Size(xsize, ysize), CV_16UC1);
+    
+    FocusJob(80, 8);
+    FocusJob(20, 3);
+    
     if (!sub) {
         cam.put_Connected(false);
     	std::cout << "Camera disconnected.\nTest complete.\n";
