@@ -590,10 +590,11 @@ int Cam::FocusOptimizer(bool sub)
     int iter = 235;
     
     cv_image = Mat(Size(xsize, ysize), CV_16UC1);
-    
+   
+    scope->XCommand("pause_guiding"); 
     FocusJob(50, 8);
     FocusJob(20, 2);
-    
+    scope->XCommand("start_guiding"); 
     if (!sub) {
         cam.put_Connected(false);
     	std::cout << "Camera disconnected.\nTest complete.\n";
