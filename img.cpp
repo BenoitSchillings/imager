@@ -311,12 +311,12 @@ void Cam::Update(bool force)
     } 
 
     if (force) {
-	for (int y = 0; y < ysize; y += (ysize/8)) {
-		for (int x = 0; x < xsize; x+= (xsize/8)) {
-			printf("%d ", Pixel(x, y));	
-		}
-		printf("\n");
-	} 
+	//for (int y = 0; y < ysize; y += (ysize/8)) {
+		//for (int x = 0; x < xsize; x+= (xsize/8)) {
+			//printf("%d ", Pixel(x, y));	
+		//}
+		//printf("\n");
+	//} 
     }
 }
 
@@ -500,12 +500,14 @@ exit:;
 
 int Cam::FocusJob(int move0, int step)
 {
-    int direction = step;
-    int total_move = 0;
-    float max0 = 0;
-    char buf[256];
-    int x, y, z;
-    int mdelta;
+    int 	direction = step;
+    int 	total_move = 0;
+    float 	max0 = 0;
+    double	maxVal; 
+    double	minVal; 
+    char 	buf[256];
+    int 	x, y, z;
+    int 	mdelta;
 
  
     sprintf(buf, "xfocus%d", -move0/2);
@@ -514,7 +516,7 @@ int Cam::FocusJob(int move0, int step)
     int best = 0; 
     while(total_move < move0) {
         bool imageReady = false;
-	cam.StartExposure(2, true);
+	cam.StartExposure(2.3, true);
 	cam.get_ImageReady(&imageReady);
 	
 	while(!imageReady) {
@@ -528,8 +530,6 @@ int Cam::FocusJob(int move0, int step)
  
         cam.get_ImageArray(cv_image.ptr<unsigned short>(0));
         
-        double minVal;
-        double maxVal;
         Point  minLoc;
         Point  maxLoc;
         
@@ -547,7 +547,7 @@ int Cam::FocusJob(int move0, int step)
      
 	//wait 3 second for focus move to complete 
         sleep(2); 
-        Update(true);
+        Update(false);
         AutoLevel();
 	char c = cvWaitKey(1);	
         
@@ -557,6 +557,10 @@ int Cam::FocusJob(int move0, int step)
     }
    
 eexit0:;
+
+    if (max0 < 1500) { //no star found really. go back to original point
+	best = 0;
+    }
  
     mdelta = best - total_move;
     sprintf(buf, "xfocus%d\n", mdelta); scope->XCommand(buf);
@@ -587,8 +591,8 @@ int Cam::FocusOptimizer(bool sub)
     
     cv_image = Mat(Size(xsize, ysize), CV_16UC1);
     
-    FocusJob(80, 8);
-    FocusJob(20, 3);
+    FocusJob(50, 8);
+    FocusJob(20, 2);
     
     if (!sub) {
         cam.put_Connected(false);
@@ -633,7 +637,7 @@ int Cam::Take()
     }
    
     if (fc == 4) {
-    	scope->XCommand("xreqdither");
+    	//scope->XCommand("xreqdither");
     } 
 
     cam.get_ImageArraySize(x, y, z);
