@@ -62,6 +62,7 @@ public:;
     void 	WriteLine(FILE *file, int y);
     float	Temp();
     int         FocusJob(int move0, int step);
+    float 	hfd();
 
 public:
     Mat	cv_image;
@@ -490,7 +491,6 @@ int Cam::Focus()
         
         minMaxLoc(cv_image, &minVal, &maxVal, &minLoc, &maxLoc);
         printf("max %f\n", maxVal);
-        //Save(); 
         Update(true);
 	char c = cvWaitKey(1);	
         
@@ -515,6 +515,81 @@ exit:;
     return 0;
 }
 
+
+
+//-----------------------------------------------------------------------
+
+float Cam::hfd()
+{
+	Mat	tmp;
+	Mat	t0;
+	float	down_scale = 0.1;
+	int	x, y;
+
+	typedef struct {
+		float	val;
+		float   distance;
+	} hdf_entry;
+
+
+	t0 = cv_image.convertTo(CV_32FC1);
+	resize(t0, tmp, Size(0, 0), down_scale, down_scale, INTER_AREA);
+	
+
+	double maxval;
+	double minval;
+        
+	Point  minLoc;
+        Point  maxLoc;
+
+	minMaxLoc(tmp, &minval, &maxval, &minloc, &maxloc);
+
+
+	minLoc.x /= 10.0;
+	minLoc.y /= 10.0;
+
+	float bias = 0;
+
+	for (int y = 5; y < 10; y++) {
+		for (int x = 5; x < 10; x++) {	
+			bias += tmp.at(y, x);
+		}
+	}
+	bias /= 25.0;
+	bias += 15.0;
+
+	int box = 20;
+	float total = 0;	
+	float tx = 0;
+	float ty = 0;	
+	
+	for (y = maxLoc.y - box; y <= maxLoc.y + box; y++) { 
+		for (x = maxLoc.x - box; x  <= maxLoc.x + box; x++) {
+			float v = tmp.at(y, x);
+			v = v - bias;
+			if (v < 0) v = 0;
+			total = total + v;	
+			tx = tx + v * x;
+			ty = ty + v * y;	
+		}
+	}	
+	if (total < 500) {
+		return 128;
+	}
+
+	tx /= total;
+	ty /= total;
+
+
+       for (y = ty - box; y <= ty + box; y++) {
+                for (x = tx - box; x  <= tx + box; x++) {
+                        float v = tmp.at(y, x); 
+                        v = v - bias;
+                        if (v < 0) v = 0;
+                }
+        }
+
+}
 
 
 //-----------------------------------------------------------------------
