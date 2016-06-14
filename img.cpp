@@ -132,7 +132,7 @@ void Cam::Save()
 
     sprintf(buf, "%s_%ld.fit", g_fn, result);
     FILE *file = fopen(buf, "wb");
-
+    printf("save %s\n", buf);
     char  header_buf[0xb40];
 
     int i;
@@ -239,7 +239,7 @@ Cam::Cam()
     cam.get_CanSetCCDTemperature(&canSetTemp);
     if (canSetTemp) {
         // Set the CCD temp setpoint to 10.0C
-        cam.put_SetCCDTemperature(-10);
+        cam.put_SetCCDTemperature(-15);
         // Enable the cooler
         cam.put_CoolerOn(true);
     }
@@ -362,6 +362,21 @@ void Cam::AutoLevel()
 
 //-----------------------------------------------------------------------
 
+void center(Mat img)
+{
+        int     cx, cy;
+
+        cx = img.cols;
+        cy = img.rows;
+        cx /= 2.0;
+        cy /= 2.0;
+        rectangle(img, Point(cx-10, cy-10), Point(cx+10, cy+10), Scalar(32000, 32000, 32000), 1, 8);
+        rectangle(img, Point(cx-13, cy-13), Point(cx+13, cy+13), Scalar(9000, 9000, 9000), 1, 8);
+        rectangle(img, Point(cx-12, cy-12), Point(cx+12, cy+12), Scalar(9000, 9000, 9000), 1, 8);
+        rectangle(img, Point(cx-11, cy-11), Point(cx+11, cy+11), Scalar(9000, 9000, 9000), 1, 8);
+}
+
+
 
 int Cam::Find()
 {
@@ -392,7 +407,8 @@ int Cam::Find()
         cam.get_ImageArraySize(x, y, z);
  
         cam.get_ImageArray(cv_image.ptr<unsigned short>(0));	
-        Update(true);
+       	center(cv_image); 
+	Update(true);
 	char c = cvWaitKey(1);	
         
         if (killp || c == 27) {
@@ -402,7 +418,7 @@ int Cam::Find()
         	AutoLevel();
         }
 
-
+	//Save();
 
     }
     cam.put_Connected(false);
@@ -452,7 +468,12 @@ int Cam::Focus()
             if (c == 'a' || c == 'A') {
                 AutoLevel();
             }
-            
+            if (c == '+') {
+		scope->XCommand("xfocus8\n");	
+	    }
+	    if (c == '-') {
+               scope->XCommand("xfocus-8\n"); 
+            } 
             usleep(100);
             cam.get_ImageReady(&imageReady);
         }
@@ -512,11 +533,13 @@ int Cam::FocusJob(int move0, int step)
  
     sprintf(buf, "xfocus%d", -move0/2);
     scope->XCommand(buf); 
-    sleep(3); 
+    printf("sleep0\n"); 
+    sleep(4); 
+    printf("sleep1\n"); 
     int best = 0; 
     while(total_move < move0) {
         bool imageReady = false;
-	cam.StartExposure(2.3, true);
+	cam.StartExposure(3.5, true);
 	cam.get_ImageReady(&imageReady);
 	
 	while(!imageReady) {
@@ -546,7 +569,7 @@ int Cam::FocusJob(int move0, int step)
         printf("old_max %f, new_max %f. direction = %d. totalmove = %d\n", max0, maxVal, direction, total_move);
      
 	//wait 3 second for focus move to complete 
-        sleep(2); 
+        sleep(3); 
         Update(false);
         AutoLevel();
 	char c = cvWaitKey(1);	
@@ -558,12 +581,15 @@ int Cam::FocusJob(int move0, int step)
    
 eexit0:;
 
-    if (max0 < 1500) { //no star found really. go back to original point
+    if (max0 < 750) { //no star found really. go back to original point
 	best = 0;
+   	mdelta = -total_move/2; 
     }
- 
-    mdelta = best - total_move;
+    else { 
+    	mdelta = best - total_move;
+    } 
     sprintf(buf, "xfocus%d\n", mdelta); scope->XCommand(buf);
+    sleep(3); 
     printf("final move back by %d\n", mdelta); 
    
 eexit:; 
@@ -590,10 +616,11 @@ int Cam::FocusOptimizer(bool sub)
     int iter = 235;
     
     cv_image = Mat(Size(xsize, ysize), CV_16UC1);
-   
+  
+    //scope->XCommand("xfocus85\n"); 
     scope->XCommand("pause_guiding"); 
-    FocusJob(50, 8);
-    FocusJob(20, 2);
+    FocusJob(90, 10);
+    FocusJob(25, 2);
     scope->XCommand("start_guiding"); 
     if (!sub) {
         cam.put_Connected(false);
@@ -620,7 +647,7 @@ int Cam::Take()
   
     fc = 0;
      
-    while(fc!=4) { 
+    while(fc!=5) { 
     fc++; 
     
     cam.put_ReadoutSpeed(QSICamera::HighImageQuality); //HighImageQuality
@@ -638,7 +665,7 @@ int Cam::Take()
     }
    
     if (fc == 4) {
-    	//scope->XCommand("xreqdither");
+    	scope->XCommand("xreqdither");
     } 
 
     cam.get_ImageArraySize(x, y, z);
@@ -813,7 +840,7 @@ int main(int argc, char** argv)
 	if (match(argv[pos], "-o="))  {sscanf(strchr(argv[pos], '=') , "=%s",  (char*)g_fn); argv[pos][0] = 0;}	
 	pos++;
      } 
-
+ 
     printf("exp    = %f\n", g_exp);
     printf("bin    = %d\n", g_bin);
     printf("filter = %d\n", g_filter);
