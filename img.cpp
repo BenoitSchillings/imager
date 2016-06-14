@@ -527,12 +527,12 @@ float Cam::hfd()
 	int	x, y;
 
 	typedef struct {
-		float	val;
+		float	value;
 		float   distance;
 	} hdf_entry;
 
 
-	t0 = cv_image.convertTo(CV_32FC1);
+	cv_image.convertTo(t0, CV_32F);
 	resize(t0, tmp, Size(0, 0), down_scale, down_scale, INTER_AREA);
 	
 
@@ -542,30 +542,44 @@ float Cam::hfd()
 	Point  minLoc;
         Point  maxLoc;
 
-	minMaxLoc(tmp, &minval, &maxval, &minloc, &maxloc);
+	minMaxLoc(tmp, &minval, &maxval, &minLoc, &maxLoc);
 
 
 	minLoc.x /= 10.0;
 	minLoc.y /= 10.0;
 
+	int box = 20;
+
+	if (maxLoc.x <= box)
+		return 32;
+	if (maxLoc.y <= box)
+		return 32;
+
+	if (maxLoc.x >= t0.cols - box)
+		return 32;
+
+        if (maxLoc.y >= t0.rows - box)
+                return 32;
+
+
 	float bias = 0;
 
 	for (int y = 5; y < 10; y++) {
 		for (int x = 5; x < 10; x++) {	
-			bias += tmp.at(y, x);
+			bias += tmp.at<float>(y, x);
 		}
 	}
+	
 	bias /= 25.0;
 	bias += 15.0;
 
-	int box = 20;
 	float total = 0;	
 	float tx = 0;
 	float ty = 0;	
 	
 	for (y = maxLoc.y - box; y <= maxLoc.y + box; y++) { 
 		for (x = maxLoc.x - box; x  <= maxLoc.x + box; x++) {
-			float v = tmp.at(y, x);
+			float v = tmp.at<float>(y, x);
 			v = v - bias;
 			if (v < 0) v = 0;
 			total = total + v;	
@@ -579,13 +593,39 @@ float Cam::hfd()
 
 	tx /= total;
 	ty /= total;
+	int count =0;
 
-
-       for (y = ty - box; y <= ty + box; y++) {
+        for (y = ty - box; y <= ty + box; y++) {
                 for (x = tx - box; x  <= tx + box; x++) {
-                        float v = tmp.at(y, x); 
+                        float v = tmp.at<float>(y, x); 
                         v = v - bias;
                         if (v < 0) v = 0;
+			if (v > 0) 
+				count++;
+                }
+        }
+
+	hdf_entry *list;
+	
+	list = (hdf_entry*)malloc(count * sizeof(hdf_entry));
+
+
+        count = 0;
+
+        for (y = ty - box; y <= ty + box; y++) {
+                for (x = tx - box; x  <= tx + box; x++) {
+                        float v = tmp.at<float>(y, x);
+                        v = v - bias;
+                        if (v < 0) v = 0;
+                        if (v > 0) {
+				float dx = x - dx;
+				float dy = y - dy;
+				float dist = (dx*dx)+(dy*dy);
+				dist = sqrt(dist);
+                               	list[count].distance = dist;
+				list[count].value = v; 
+				count++;
+			}
                 }
         }
 
