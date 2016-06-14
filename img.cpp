@@ -518,6 +518,27 @@ exit:;
 
 
 //-----------------------------------------------------------------------
+       
+typedef struct {
+       float   value;
+       float   distance;
+} hdf_entry;
+
+//-----------------------------------------------------------------------
+
+
+int sort_hdf(const void * a, const void * b)
+{
+	float d_a = ((hdf_entry*)a)->distance;
+	float d_b = ((hdf_entry*)b)->distance;
+
+	if (d_a == d_b) return 0;
+	if (d_a < d_b) return -1;
+	return 1;
+
+}
+
+//-----------------------------------------------------------------------
 
 float Cam::hfd()
 {
@@ -534,7 +555,8 @@ float Cam::hfd()
 
 	cv_image.convertTo(t0, CV_32F);
 	resize(t0, tmp, Size(0, 0), down_scale, down_scale, INTER_AREA);
-	
+
+	printf("convert and resize done\n");	
 
 	double maxval;
 	double minval;
@@ -545,9 +567,10 @@ float Cam::hfd()
 	minMaxLoc(tmp, &minval, &maxval, &minLoc, &maxLoc);
 
 
-	minLoc.x /= 10.0;
-	minLoc.y /= 10.0;
+	maxLoc.x /= 10.0;
+	maxLoc.y /= 10.0;
 
+	printf("real pos %f %f\n", maxLoc.x, maxLoc.y); 
 	int box = 20;
 
 	if (maxLoc.x <= box)
@@ -562,6 +585,7 @@ float Cam::hfd()
                 return 32;
 
 
+	printf("inside box\n");
 	float bias = 0;
 
 	for (int y = 5; y < 10; y++) {
@@ -572,6 +596,8 @@ float Cam::hfd()
 	
 	bias /= 25.0;
 	bias += 15.0;
+
+	printf("bias cut %f\n", bias);
 
 	float total = 0;	
 	float tx = 0;
@@ -593,6 +619,8 @@ float Cam::hfd()
 
 	tx /= total;
 	ty /= total;
+	printf("real center %f %f\n", tx, ty);
+	
 	int count =0;
 
         for (y = ty - box; y <= ty + box; y++) {
@@ -605,12 +633,15 @@ float Cam::hfd()
                 }
         }
 
+	printf("count entry %d\n", count);
+
 	hdf_entry *list;
 	
 	list = (hdf_entry*)malloc(count * sizeof(hdf_entry));
 
 
         count = 0;
+	total = 0;
 
         for (y = ty - box; y <= ty + box; y++) {
                 for (x = tx - box; x  <= tx + box; x++) {
@@ -623,12 +654,26 @@ float Cam::hfd()
 				float dist = (dx*dx)+(dy*dy);
 				dist = sqrt(dist);
                                	list[count].distance = dist;
-				list[count].value = v; 
+				list[count].value = v;
+				total += v; 
 				count++;
 			}
                 }
         }
+	printf("got the list\n");	
+	qsort(list, count, sizeof(hdf_entry), sort_hdf);
+	printf("sorting done. first entry is %f %f\n", list[0].distance, list[0].value);
 
+	float half_total = 0;
+
+	for (int i = 0; i < count; i++) {
+		if (half_total > (total/2.0)) {
+			printf("found it %f\n", list[i].distance);
+			return list[i].distance;
+		}
+		half_total += list[i].value; 	
+	}
+	return 32;
 }
 
 
