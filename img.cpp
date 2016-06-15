@@ -491,7 +491,8 @@ int Cam::Focus()
         
         minMaxLoc(cv_image, &minVal, &maxVal, &minLoc, &maxLoc);
         printf("max %f\n", maxVal);
-        Update(true);
+       	hfd(); 
+	Update(true);
 	char c = cvWaitKey(1);	
         
         if (killp || c == 27) {
@@ -543,7 +544,6 @@ int sort_hdf(const void * a, const void * b)
 float Cam::hfd()
 {
 	Mat	tmp;
-	Mat	t0;
 	float	down_scale = 0.1;
 	int	x, y;
 
@@ -553,9 +553,7 @@ float Cam::hfd()
 	} hdf_entry;
 
 
-	cv_image.convertTo(t0, CV_32F);
-	resize(t0, tmp, Size(0, 0), down_scale, down_scale, INTER_AREA);
-
+	resize(cv_image, tmp, Size(0, 0), down_scale, down_scale, INTER_LINEAR);
 	printf("convert and resize done\n");	
 
 	double maxval;
@@ -567,10 +565,10 @@ float Cam::hfd()
 	minMaxLoc(tmp, &minval, &maxval, &minLoc, &maxLoc);
 
 
-	maxLoc.x /= 10.0;
-	maxLoc.y /= 10.0;
+	maxLoc.x *= 10.0;
+	maxLoc.y *= 10.0;
 
-	printf("real pos %f %f\n", maxLoc.x, maxLoc.y); 
+	printf("real pos %f %f\n", (float)maxLoc.x, (float)maxLoc.y); 
 	int box = 20;
 
 	if (maxLoc.x <= box)
@@ -578,10 +576,10 @@ float Cam::hfd()
 	if (maxLoc.y <= box)
 		return 32;
 
-	if (maxLoc.x >= t0.cols - box)
+	if (maxLoc.x >= cv_image.cols - box)
 		return 32;
 
-        if (maxLoc.y >= t0.rows - box)
+        if (maxLoc.y >= cv_image.rows - box)
                 return 32;
 
 
@@ -590,7 +588,7 @@ float Cam::hfd()
 
 	for (int y = 5; y < 10; y++) {
 		for (int x = 5; x < 10; x++) {	
-			bias += tmp.at<float>(y, x);
+			bias += cv_image.at<unsigned short>(y, x);
 		}
 	}
 	
@@ -605,7 +603,7 @@ float Cam::hfd()
 	
 	for (y = maxLoc.y - box; y <= maxLoc.y + box; y++) { 
 		for (x = maxLoc.x - box; x  <= maxLoc.x + box; x++) {
-			float v = tmp.at<float>(y, x);
+			float v = cv_image.at<unsigned short>(y, x);
 			v = v - bias;
 			if (v < 0) v = 0;
 			total = total + v;	
@@ -613,7 +611,8 @@ float Cam::hfd()
 			ty = ty + v * y;	
 		}
 	}	
-	if (total < 500) {
+ 	printf("total %f\n", total);	
+        if (total < 500) {
 		return 128;
 	}
 
@@ -625,7 +624,7 @@ float Cam::hfd()
 
         for (y = ty - box; y <= ty + box; y++) {
                 for (x = tx - box; x  <= tx + box; x++) {
-                        float v = tmp.at<float>(y, x); 
+                        float v = cv_image.at<unsigned short>(y, x); 
                         v = v - bias;
                         if (v < 0) v = 0;
 			if (v > 0) 
@@ -645,12 +644,12 @@ float Cam::hfd()
 
         for (y = ty - box; y <= ty + box; y++) {
                 for (x = tx - box; x  <= tx + box; x++) {
-                        float v = tmp.at<float>(y, x);
+                        float v = cv_image.at<unsigned short>(y, x);
                         v = v - bias;
                         if (v < 0) v = 0;
                         if (v > 0) {
-				float dx = x - dx;
-				float dy = y - dy;
+				float dx = x - tx;
+				float dy = y - ty;
 				float dist = (dx*dx)+(dy*dy);
 				dist = sqrt(dist);
                                	list[count].distance = dist;
@@ -660,8 +659,8 @@ float Cam::hfd()
 			}
                 }
         }
-	printf("got the list\n");	
-	qsort(list, count, sizeof(hdf_entry), sort_hdf);
+	printf("got the list, count = %d\n", count);	
+	qsort(list, count-1, sizeof(hdf_entry), sort_hdf);
 	printf("sorting done. first entry is %f %f\n", list[0].distance, list[0].value);
 
 	float half_total = 0;
