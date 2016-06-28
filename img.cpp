@@ -62,6 +62,8 @@ public:;
     void 	WriteLine(FILE *file, int y);
     float	Temp();
     int         FocusJob(int move0, int step);
+    int         FocusJob1(int move0, int step);
+
     float 	hfd();
 
 public:
@@ -471,10 +473,12 @@ int Cam::Focus()
             }
             if (c == '+') {
 		scope->XCommand("xfocus8\n");	
+	   	printf("move\n"); 
 	    }
 	    if (c == '-') {
                scope->XCommand("xfocus-8\n"); 
-            } 
+           	printf("move in\n"); 
+	    } 
             usleep(100);
             cam.get_ImageReady(&imageReady);
         }
@@ -501,6 +505,14 @@ int Cam::Focus()
         if (c == 'a' || c == 'A') {
         	AutoLevel();
         }
+            if (c == '+') {
+                scope->XCommand("xfocus8\n");
+                printf("move\n");
+            }
+            if (c == '-') {
+               scope->XCommand("xfocus-8\n");
+                printf("move in\n");
+            }
 
 
 
@@ -554,7 +566,7 @@ float Cam::hfd()
 
 
 	resize(cv_image, tmp, Size(0, 0), down_scale, down_scale, INTER_LINEAR);
-	printf("convert and resize done\n");	
+	//printf("convert and resize done\n");	
 
 	double maxval;
 	double minval;
@@ -568,7 +580,7 @@ float Cam::hfd()
 	maxLoc.x *= 10.0;
 	maxLoc.y *= 10.0;
 
-	printf("real pos %f %f\n", (float)maxLoc.x, (float)maxLoc.y); 
+	//printf("real pos %f %f\n", (float)maxLoc.x, (float)maxLoc.y); 
 	int box = 20;
 
 	if (maxLoc.x <= box)
@@ -583,7 +595,7 @@ float Cam::hfd()
                 return 32;
 
 
-	printf("inside box\n");
+	//printf("inside box\n");
 	float bias = 0;
 
 	for (int y = 5; y < 10; y++) {
@@ -595,7 +607,7 @@ float Cam::hfd()
 	bias /= 25.0;
 	bias += 15.0;
 
-	printf("bias cut %f\n", bias);
+	//printf("bias cut %f\n", bias);
 
 	float total = 0;	
 	float tx = 0;
@@ -611,14 +623,14 @@ float Cam::hfd()
 			ty = ty + v * y;	
 		}
 	}	
- 	printf("total %f\n", total);	
+ 	//printf("total %f\n", total);	
         if (total < 500) {
 		return 128;
 	}
 
 	tx /= total;
 	ty /= total;
-	printf("real center %f %f\n", tx, ty);
+	//printf("real center %f %f\n", tx, ty);
 	
 	int count =0;
 
@@ -632,7 +644,7 @@ float Cam::hfd()
                 }
         }
 
-	printf("count entry %d\n", count);
+	//printf("count entry %d\n", count);
 
 	hdf_entry *list;
 	
@@ -659,9 +671,7 @@ float Cam::hfd()
 			}
                 }
         }
-	printf("got the list, count = %d\n", count);	
 	qsort(list, count-1, sizeof(hdf_entry), sort_hdf);
-	printf("sorting done. first entry is %f %f\n", list[0].distance, list[0].value);
 
 	float half_total = 0;
 
@@ -675,6 +685,91 @@ float Cam::hfd()
 	return 32;
 }
 
+
+//-----------------------------------------------------------------------
+
+int Cam::FocusJob1(int move0, int step)
+{
+    int 	direction = step;
+    int 	total_move = 0;
+    float 	max0 = 0;
+    double	maxVal; 
+    double	minVal; 
+    char 	buf[256];
+    int 	x, y, z;
+    int 	mdelta;
+
+ 
+    sprintf(buf, "xfocus%d", -move0/2);
+    scope->XCommand(buf); 
+    printf("sleep0\n"); 
+    sleep(4); 
+    printf("sleep1\n"); 
+    int best = 0; 
+    float min_size = 1e8;
+ 
+    for (int iter = 0; iter < 15; iter++) {
+        bool imageReady = false;
+	cam.StartExposure(1.5, true);
+	cam.get_ImageReady(&imageReady);
+	
+	while(!imageReady) {
+            Update(false); 
+            usleep(100);
+            cam.get_ImageReady(&imageReady);
+        }
+        cam.get_ImageArraySize(x, y, z);
+        cam.get_ImageArray(cv_image.ptr<unsigned short>(0));
+        
+        Update(false);
+        AutoLevel();
+
+         
+	float hf_size0 = hfd();
+        
+        int move = rand() % 30;
+        
+        move = move - 15;
+ 
+       
+	sprintf(buf, "xfocus%d", move); scope->XCommand(buf);
+        sleep(3);
+        
+        imageReady = false;
+	cam.StartExposure(1.5, true);
+	cam.get_ImageReady(&imageReady);
+	
+	while(!imageReady) {
+            Update(false); 
+            usleep(100);
+            cam.get_ImageReady(&imageReady);
+        }
+        cam.get_ImageArraySize(x, y, z);
+        cam.get_ImageArray(cv_image.ptr<unsigned short>(0));
+        
+        Update(false);
+        AutoLevel();
+       
+   	float hf_size1 = hfd();
+     
+        printf("hf0 = %f, hf1 = %f, dmove = %d\n", hf_size0, hf_size1, move);
+        
+        if (hf_size1 > hf_size0) {
+            sprintf(buf, "xfocus%d", -move); scope->XCommand(buf);
+            sleep(3);
+         }
+        
+	char c = cvWaitKey(1);	
+        
+        if (killp || c == 27) {
+            goto eexit0;	
+        }
+    }
+   
+eexit0:;
+   
+eexit:; 
+}
 
 //-----------------------------------------------------------------------
 
@@ -696,9 +791,11 @@ int Cam::FocusJob(int move0, int step)
     sleep(4); 
     printf("sleep1\n"); 
     int best = 0; 
+    float min_size = 1e8;
+ 
     while(total_move < move0) {
         bool imageReady = false;
-	cam.StartExposure(3.5, true);
+	cam.StartExposure(1.5, true);
 	cam.get_ImageReady(&imageReady);
 	
 	while(!imageReady) {
@@ -716,12 +813,14 @@ int Cam::FocusJob(int move0, int step)
         Point  maxLoc;
         
         minMaxLoc(cv_image, &minVal, &maxVal, &minLoc, &maxLoc);
-        if (maxVal > max0) {
+        
+	float hf_size = hfd();
+
+	if (maxVal > max0) {
 		best = total_move;
 		max0 = maxVal;
 	}
  
-    
         total_move += direction;
        
 	sprintf(buf, "xfocus%d", direction); scope->XCommand(buf);
@@ -740,7 +839,7 @@ int Cam::FocusJob(int move0, int step)
    
 eexit0:;
 
-    if (max0 < 750) { //no star found really. go back to original point
+    if (max0 < 700.0) { //no star found really. go back to original point
 	best = 0;
    	mdelta = -total_move/2; 
     }
@@ -758,17 +857,21 @@ eexit:;
 
 int Cam::FocusOptimizer(bool sub)
 {
-    cam.put_BinX(1);
-    cam.put_BinY(1);
+    cam.put_BinX(2);
+    cam.put_BinY(2);
 
     cam.get_CameraXSize(&xsize);
     cam.get_CameraYSize(&ysize);
     printf("Focus\n"); 
-    xsize /= 2;
-    ysize /= 2;
+    xsize /= 4;
+    ysize /= 4;
     
     cam.put_StartX(xsize*0.5);
     cam.put_StartY(ysize*0.5);
+    
+    //cam.put_StartX(0);
+    //cam.put_StartY(0);
+ 
     cam.put_NumX(xsize);
     cam.put_NumY(ysize);
     
@@ -777,10 +880,10 @@ int Cam::FocusOptimizer(bool sub)
     cv_image = Mat(Size(xsize, ysize), CV_16UC1);
   
     //scope->XCommand("xfocus85\n"); 
-    scope->XCommand("pause_guiding"); 
-    FocusJob(90, 10);
-    FocusJob(25, 2);
-    scope->XCommand("start_guiding"); 
+    scope->XCommand("xpause_guiding"); 
+    //FocusJob(90, 10);
+    FocusJob1(45, 3);
+    scope->XCommand("xstart_guiding"); 
     if (!sub) {
         cam.put_Connected(false);
     	std::cout << "Camera disconnected.\nTest complete.\n";
@@ -806,7 +909,7 @@ int Cam::Take()
   
     fc = 0;
      
-    while(fc!=5) { 
+    while(fc!=8) { 
     fc++; 
     
     cam.put_ReadoutSpeed(QSICamera::HighImageQuality); //HighImageQuality
@@ -823,7 +926,7 @@ int Cam::Take()
         cam.get_ImageReady(&imageReady);
     }
    
-    if (fc == 4) {
+    if (fc == 7) {
     	scope->XCommand("xreqdither");
     } 
 
@@ -964,8 +1067,7 @@ bool match(char *s1, const char *s2)
 void intHandler(int dummy=0) {
        	killp = 1;
 	printf("sig kill\n");
-	cam.put_Connected(false);	
- 	exit(0);
+        return;
 }
 
 //-----------------------------------------------------------------------
