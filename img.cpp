@@ -108,6 +108,15 @@ void Cam::WriteLine(FILE *file, int y)
 
 //-----------------------------------------------------------------------
 
+void s_now(char *buf)
+{
+  time_t now = time(0);
+  tm* now_tm = gmtime(&now);
+  
+  strftime(buf, 25, "%Y-%m-%dT%H:%M:%S", now_tm);
+}
+
+
 void IntTo4(int v, char *p)
 {
 	*p++ = 0x30 + (v/10000);
@@ -167,6 +176,12 @@ void Cam::Save()
  
 	i++;
     } while(i < 40);
+
+    char buf1[256];
+    s_now(buf1);
+
+    memcpy(&header_buf[8 * 80 + 11], buf1, 25); 
+    memcpy(&header_buf[9 * 80 + 11], buf1, 25);
 
     fwrite(header_buf, 0xb40, 1, file);
 
@@ -236,13 +251,13 @@ Cam::Cam()
     std::cout << modelNumber << "\n";
     cam.get_Description(desc);
     cam.put_SoundEnabled(true);
-    cam.put_FanMode(QSICamera::fanQuiet);
+    cam.put_FanMode(QSICamera::fanFull);
     
     // Query if the camera can control the CCD temp
     cam.get_CanSetCCDTemperature(&canSetTemp);
     if (canSetTemp) {
         // Set the CCD temp setpoint to 10.0C
-        cam.put_SetCCDTemperature(-15);
+        cam.put_SetCCDTemperature(-18);
         // Enable the cooler
         cam.put_CoolerOn(true);
     }
@@ -384,7 +399,9 @@ void center(Mat img)
 int Cam::Find()
 {
     int x,y,z;
-    
+   
+    //cam.put_ReadoutSpeed(QSICamera::HighImageQuality); //HighImageQuality
+ 
    
     while(1) {	
         bool imageReady = false;
@@ -494,8 +511,7 @@ int Cam::Focus()
         Point  maxLoc;
         
         minMaxLoc(cv_image, &minVal, &maxVal, &minLoc, &maxLoc);
-        printf("max %f\n", maxVal);
-       	hfd(); 
+        printf("max %f, %f\n", maxVal, hfd());
 	Update(true);
 	char c = cvWaitKey(1);	
         
@@ -600,7 +616,7 @@ float Cam::hfd()
 
 	for (int y = 5; y < 10; y++) {
 		for (int x = 5; x < 10; x++) {	
-			bias += cv_image.at<unsigned short>(y, x);
+			bias += cv_image.at<unsigned short>(10 + maxLoc.y + y, 10 + maxLoc.x + x);
 		}
 	}
 	
@@ -677,7 +693,7 @@ float Cam::hfd()
 
 	for (int i = 0; i < count; i++) {
 		if (half_total > (total/2.0)) {
-			printf("found it %f\n", list[i].distance);
+			//printf("found it %f\n", list[i].distance);
 			return list[i].distance;
 		}
 		half_total += list[i].value; 	
@@ -698,24 +714,19 @@ int Cam::FocusJob1(int move0, int step)
     char 	buf[256];
     int 	x, y, z;
     int 	mdelta;
-
+    int		total = 0;
+    float	exp = 2.8;
  
-    sprintf(buf, "xfocus%d", -move0/2);
-    scope->XCommand(buf); 
-    printf("sleep0\n"); 
-    sleep(4); 
-    printf("sleep1\n"); 
-    int best = 0; 
     float min_size = 1e8;
  
     for (int iter = 0; iter < 15; iter++) {
         bool imageReady = false;
-	cam.StartExposure(1.5, true);
+	cam.StartExposure(exp, true);
 	cam.get_ImageReady(&imageReady);
 	
 	while(!imageReady) {
             Update(false); 
-            usleep(100);
+            usleep(500);
             cam.get_ImageReady(&imageReady);
         }
         cam.get_ImageArraySize(x, y, z);
@@ -727,21 +738,37 @@ int Cam::FocusJob1(int move0, int step)
          
 	float hf_size0 = hfd();
         
-        int move = rand() % 30;
-        
-        move = move - 15;
+	Point  minLoc;
+        Point  maxLoc;
+
+        minMaxLoc(cv_image, &minVal, &maxVal, &minLoc, &maxLoc);
+
+	float max0 = maxVal;
  
+	int move;
+ 
+	do { 
+        	move = rand() % 36;
+        	move = move - 17;
+	} while(move < 4 && move > -4); 
        
 	sprintf(buf, "xfocus%d", move); scope->XCommand(buf);
-        sleep(3);
-        
+        sleep(1);
+      
+        char c = cvWaitKey(1);
+
+        if (killp || c == 27) {
+            goto eexit0;
+        }
+ 
+ 
         imageReady = false;
-	cam.StartExposure(1.5, true);
+	cam.StartExposure(exp, true);
 	cam.get_ImageReady(&imageReady);
 	
 	while(!imageReady) {
             Update(false); 
-            usleep(100);
+            usleep(500);
             cam.get_ImageReady(&imageReady);
         }
         cam.get_ImageArraySize(x, y, z);
@@ -751,15 +778,21 @@ int Cam::FocusJob1(int move0, int step)
         AutoLevel();
        
    	float hf_size1 = hfd();
-     
-        printf("hf0 = %f, hf1 = %f, dmove = %d\n", hf_size0, hf_size1, move);
+        minMaxLoc(cv_image, &minVal, &maxVal, &minLoc, &maxLoc);
+
+        float max1 = maxVal;
+ 
+        printf("hf0 = %f, hf1 = %f, max0 = %f, max1 = %f, dmove = %d, tot = %d\n", hf_size0, hf_size1, max0, max1, move, total);
         
-        if (hf_size1 > hf_size0) {
+        if (max1 < max0) {
             sprintf(buf, "xfocus%d", -move); scope->XCommand(buf);
-            sleep(3);
-         }
-        
-	char c = cvWaitKey(1);	
+            sleep(1);
+        }
+       	else {
+	    total = total + move;	
+	}
+ 
+	c = cvWaitKey(1);	
         
         if (killp || c == 27) {
             goto eexit0;	
@@ -795,12 +828,12 @@ int Cam::FocusJob(int move0, int step)
  
     while(total_move < move0) {
         bool imageReady = false;
-	cam.StartExposure(1.5, true);
+	cam.StartExposure(3.5, true);
 	cam.get_ImageReady(&imageReady);
 	
 	while(!imageReady) {
             Update(false); 
-            usleep(100);
+            usleep(500);
             cam.get_ImageReady(&imageReady);
         }
 	
@@ -857,17 +890,17 @@ eexit:;
 
 int Cam::FocusOptimizer(bool sub)
 {
-    cam.put_BinX(2);
-    cam.put_BinY(2);
+    cam.put_BinX(1);
+    cam.put_BinY(1);
 
     cam.get_CameraXSize(&xsize);
     cam.get_CameraYSize(&ysize);
     printf("Focus\n"); 
-    xsize /= 4;
-    ysize /= 4;
+    xsize /= 1;
+    ysize /= 1;
     
-    cam.put_StartX(xsize*0.5);
-    cam.put_StartY(ysize*0.5);
+    cam.put_StartX(xsize*0.0);
+    cam.put_StartY(ysize*0.0);
     
     //cam.put_StartX(0);
     //cam.put_StartY(0);
@@ -882,7 +915,7 @@ int Cam::FocusOptimizer(bool sub)
     //scope->XCommand("xfocus85\n"); 
     scope->XCommand("xpause_guiding"); 
     //FocusJob(90, 10);
-    FocusJob1(45, 3);
+    FocusJob(30, 3);
     scope->XCommand("xstart_guiding"); 
     if (!sub) {
         cam.put_Connected(false);
@@ -909,7 +942,7 @@ int Cam::Take()
   
     fc = 0;
      
-    while(fc!=8) { 
+    while(fc!=3) { 
     fc++; 
     
     cam.put_ReadoutSpeed(QSICamera::HighImageQuality); //HighImageQuality
@@ -922,17 +955,17 @@ int Cam::Take()
         if (killp || c == 27) { 
             goto exit;
         }
-        usleep(100);
+        usleep(500);
         cam.get_ImageReady(&imageReady);
     }
    
-    if (fc == 7) {
+    if (fc%7 == 6) {
     	scope->XCommand("xreqdither");
+   	usleep(5000); 
     } 
 
     cam.get_ImageArraySize(x, y, z);
     cam.get_ImageArray(cv_image.ptr<unsigned short>(0));	
-    usleep(1000*10000*4); 
     Save(); 
     } 
 exit:; 
@@ -1019,7 +1052,7 @@ int Cam::Flat()
     cam.get_ImageArray(cv_image.ptr<unsigned short>(0));
     AutoLevel();
     printf("level %f\n", avg); 
-   if (avg > 3000 && avg < 18000) {
+   if (avg > 3000 && avg < 12000) {
         frame_taken++; 
 	Save();
     }
